@@ -1,0 +1,18 @@
+# Build artefacts
+*.intunewin
+* - output/
+
+# Installers: generate your own from your EMS console, never commit them.
+# They embed YOUR invitation code.
+*.exe
+*.msi
+package/x64/*
+package/arm64/*
+!package/x64/PLACEHOLDER.md
+!package/arm64/PLACEHOLDER.md
+
+# Exports produced by tools/Get-IntuneRemediations.ps1 - contain tenant script content
+remediations-export/
+
+# Logs
+*.log
