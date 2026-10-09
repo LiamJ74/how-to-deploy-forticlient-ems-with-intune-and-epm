@@ -1,6 +1,14 @@
 # ============================================================
 # PROACTIVE REMEDIATION - DETECTION : reste-t-il un lanceur d'enrollment FortiClient ?
 # ------------------------------------------------------------
+# /!\ SCRIPT DE MIGRATION - N'A DE SENS QUE SI VOUS AVEZ DEJA DEPLOYE L'ANCIEN DISPOSITIF.
+#     Il ne concerne QUE l'architecture precedente (tache planifiee + cle Run
+#     'FortiEMS-Enroll' + wrapper FortiTray-Enroll.ps1), qui tentait d'enroler en appelant
+#     FortiESNAC.exe. Il ne touche PAS a l'architecture decrite dans ce depot (cle Run
+#     'FortiEMS-Install' + logon-install.ps1) : les noms sont distincts et compares a
+#     l'identique, pas par motif. Si vous partez de zero avec ce depot, ces deux scripts
+#     ne vous servent a rien - ne les deployez pas.
+#
 # Contexte : le mecanisme d'auto-enrollment (tache planifiee 'FortiTray-EMS-Enrollment' ET/OU
 # cle Run HKLM 'FortiEMS-Enroll' + wrapper FortiTray-Enroll.ps1) est a retirer de la flotte :
 #   - FortiESNAC.exe a 'requestedExecutionLevel = requireAdministrator' dans son manifeste :
@@ -16,10 +24,18 @@
 #     (detect/fix), sinon elle reposera la cle Run et le wrapper au cycle suivant.
 # ============================================================
 
+# --- CONSTANTE A ADAPTER ----------------------------------------------------
+# Dossier ou l'ANCIEN dispositif deposait son wrapper. Ce n'est pas forcement le meme que le
+# $BaseDir de l'architecture courante (package\) : mettez ici le chemin que vous utilisiez
+# avant, sinon ce script ne trouvera jamais rien a nettoyer.
+$LegacyBaseDir = 'C:\ProgramData\IntuneStaging'
+
 $TaskNames = @('FortiTray-EMS-Enrollment', 'FortiEMS-Enrollment', 'FortiClient-EMS-Enrollment')
 $RunKey    = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+# Valeur EXACTE de l'ancienne cle. Surtout pas de comparaison par motif : 'FortiEMS-Install',
+# la cle de l'architecture courante, serait emportee avec.
 $RunValue  = 'FortiEMS-Enroll'
-$Wrapper   = 'C:\ProgramData\Autopilot-Setup\FortiTray-Enroll.ps1'
+$Wrapper   = Join-Path $LegacyBaseDir 'FortiTray-Enroll.ps1'
 
 $found = @()
 

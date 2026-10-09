@@ -31,6 +31,9 @@ try {
 
 $ErrorActionPreference = 'Continue'
 
+# AUCUNE CONSTANTE DE CHEMIN ICI, VOLONTAIREMENT : le dossier de depot est deduit de la
+# position de ce script sur le disque. Si vous changez $BaseDir / $StageName dans
+# install.ps1, detection.ps1 et uninstall.ps1, ce script suit sans modification.
 $Stage   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogDir  = Split-Path -Parent $Stage
 $LogFile = Join-Path $LogDir 'FortiClientEMS-ultrasimple-logon.log'
@@ -84,6 +87,46 @@ if (Test-Path $Tried) {
     } else {
         Log 'Client pose avec son code d''invitation, enrollment non finalise -> un REDEMARRAGE est requis (surtout pas une reinstallation).'
     }
+    exit 0
+}
+
+# --- 2b. ATTENDRE LE PRT ENTRA AVANT DE LANCER QUOI QUE CE SOIT -----------
+# /!\ Course critique, et le piege le plus couteux de tout ce deploiement.
+# Le moment ou WAM / le PRT devient disponible dans une session fraiche est VARIABLE : de
+# quelques secondes a une trentaine de minutes. Si FortiClient demande son token avant que
+# WAM soit pret, Fortinet rend "azuretoken is invalid" et - c'est la le piege - l'invitation
+# EMS est PERDUE cote serveur ("invitation lost if the initial user verification fails").
+# L'endpoint tombe en status 0x1D permanent : ni un redemarrage ni une reinstallation
+# par-dessus ne le rattrapent.
+#
+# Une cle Run se declenche tres tot a l'ouverture de session, donc precisement dans la fenetre
+# a risque. On attend donc explicitement AzureAdPrt=YES, en rafraichissant le PRT entre deux
+# verifications.
+#
+# dsregcmd /status et /RefreshPrt ne demandent AUCUNE elevation : ils s'executent sous
+# l'identite de l'utilisateur, ce qui est exactement ce qu'il faut ici.
+function Test-Prt {
+    try { return [bool](& dsregcmd.exe /status 2>$null | Select-String -Pattern 'AzureAdPrt\s*:\s*YES') }
+    catch { return $false }
+}
+
+$prtDeadline = (Get-Date).AddMinutes(30)
+$pn = 0
+while (-not (Test-Prt) -and (Get-Date) -lt $prtDeadline) {
+    $pn++
+    Start-Process dsregcmd.exe -ArgumentList '/RefreshPrt' -WindowStyle Hidden -ErrorAction SilentlyContinue
+    if ($pn -eq 1 -or $pn % 5 -eq 0) { Log "Attente du PRT Entra (AzureAdPrt=YES) - verification $pn" }
+    Start-Sleep -Seconds 20
+}
+
+if (Test-Prt) {
+    Log ("PRT Entra disponible apres {0} verification(s) -> lancement de l'installeur" -f $pn)
+} else {
+    # On renonce plutot que de tenter. Partout ailleurs dans ce script le marqueur est pose
+    # MEME en cas d'echec, pour ne pas relancer en boucle un installeur qui rate ; ici,
+    # DELIBEREMENT, aucun marqueur n'est pose : un lancement sans PRT ne se contente pas
+    # d'echouer, il detruit l'invitation cote EMS. Mieux vaut ne rien faire et retenter.
+    Log 'ABANDON : pas de PRT Entra apres 30 min. Lancer l''installeur maintenant perdrait l''invitation cote EMS. Nouvelle tentative au prochain logon.'
     exit 0
 }
 

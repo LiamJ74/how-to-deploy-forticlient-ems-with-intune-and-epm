@@ -44,7 +44,7 @@ Split the privileged part from the identity part.
 ```
 Intune Win32 app  (SYSTEM)     install.ps1
                                ├── copies the EMS installer + logon-install.ps1
-                               │   to C:\ProgramData\<YourFolder>\FortiEMS
+                               │   to C:\ProgramData\IntuneStaging\FortiEMS
                                ├── grants Users write access on that folder
                                └── writes HKLM\...\Run  'FortiEMS-Install'
 
@@ -67,19 +67,61 @@ Measured on a clean device: logon at `13:52:14`, installer at `13:52:15`, `statu
 ```
 package/     install.ps1          stages payload + Run key          (Win32 app, SYSTEM)
              logon-install.ps1    runs the installer once           (user session)
-             detection.ps1        Intune detection rule
+             detection.ps1        Intune detection: checks the staging, not the install
              uninstall.ps1        removes payload, Run key, product
 
 tools/       New-EpmElevationRule.ps1   creates the EPM rule via Graph
              Publish-Win32App.ps1       builds + uploads any Win32 app (with a GUI)
              Get-IntuneRemediations.ps1 exports what your remediations REALLY contain
 
-remediation/ cleanup-enroll-*.ps1  removes legacy scheduled tasks / Run keys / wrappers
+remediation/ cleanup-enroll-detect.ps1  MIGRATION ONLY — see below
+             cleanup-enroll-fix.ps1     MIGRATION ONLY — see below
 ```
 
 Drop your EMS-generated installers into `package\x64\` and `package\arm64\`.
 
+### Staging folder
+
+Everything lands under `C:\ProgramData\IntuneStaging\FortiEMS`. The name is deliberately
+generic — change it if you have your own convention. It is declared as two constants at the
+top of **install.ps1**, **detection.ps1** and **uninstall.ps1**:
+
+```powershell
+$BaseDir   = 'C:\ProgramData\IntuneStaging'
+$StageName = 'FortiEMS'
+```
+
+These three must match, or detection never passes and uninstall leaves the payload behind.
+`logon-install.ps1` needs no constant: it derives the folder from its own location on disk.
+
+### The `remediation/` scripts are for migration only
+
+They belong to an **older design** of this deployment (a scheduled task
+`FortiTray-EMS-Enrollment` and/or a Run key `FortiEMS-Enroll` launching a
+`FortiTray-Enroll.ps1` wrapper, which called `FortiESNAC.exe` directly — a UAC prompt at
+every logon). They match those names **exactly**, so they leave the current artefacts
+(`FortiEMS-Install`, `logon-install.ps1`, the staging folder) untouched.
+
+If you are starting from this repository, **you do not need them — do not deploy them.**
+If you do use them, set `$LegacyBaseDir` at the top of both files to the folder your old
+wrapper lived in. Note that the fix script also *re-creates* the `FortiTray` Run key when
+`FortiTray.exe` is present (the legitimate GUI autostart the old cleanup used to drop).
+
 ## Traps worth knowing
+
+**The PRT race is the expensive one.** In a fresh session, WAM / the Entra PRT becomes
+available anywhere between a few seconds and about half an hour. If FortiClient asks for its
+token before WAM is ready you get `azuretoken is invalid` — and the EMS invitation is **lost
+server-side** ("invitation lost if the initial user verification fails"). The endpoint then
+sits at `0x1D` for good: neither a reboot nor an install over the top recovers it, only a full
+uninstall does.
+
+A Run key fires early in session startup, right inside that window. `logon-install.ps1`
+therefore waits for `AzureAdPrt : YES` — refreshing the PRT every 20 seconds, 30 minute cap —
+before launching anything. If the PRT never shows up it **deliberately writes no attempt
+marker**: everywhere else the marker is written even on failure, to avoid a retry loop, but
+here doing nothing and retrying at the next logon beats burning the invitation.
+`dsregcmd /status` and `/RefreshPrt` need no elevation.
 
 **Intune runs Win32 install commands in the 32-bit PowerShell host.** Writing to
 `HKLM:\SOFTWARE\...\Run` is silently redirected to `WOW6432Node`. `New-ItemProperty` succeeds,
@@ -117,8 +159,10 @@ exports the real script content, which the portal does not show.
 | Detection | script, `detection.ps1` |
 | Return codes | `0` success · `3010`/`1641` reboot · `1618` retry · **`1223` failed** |
 
-Map `1223` to **failed**: it is the code for refused elevation. Left as success, it hides an
-install that never happened.
+Map `1223` to **failed**: it is the code for refused elevation. The staging install never
+returns it (it runs as SYSTEM), but `uninstall.ps1` does when `msiexec /x` is not elevated,
+and left as success it would report a product removal that never happened.
+`Publish-Win32App.ps1` adds that mapping with `-FailOnElevationDenied`.
 
 EPM rule — file name + SHA256, **Automatic**, **Allow all child processes to run elevated**
 (the self-extractor calls `msiexec` as a child). Assign the app and the EPM policy to the

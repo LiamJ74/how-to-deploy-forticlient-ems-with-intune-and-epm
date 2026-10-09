@@ -4,12 +4,14 @@
 
 .DESCRIPTION
     Le package (dossier package\) se deploie en Win32 app avec
-    "Install behavior = User" : l'installation tourne dans la session interactive de
-    l'utilisateur, ce qui est indispensable a l'enrollment EMS (le jeton Entra / PRT n'existe
-    que la ; une installation en SYSTEM tourne en session 0 et reste bloquee en status 0x1D).
+    "Install behavior = System" : install.ps1 se contente de DEPOSER l'installeur et
+    logon-install.ps1, puis de poser la cle Run HKLM 'FortiEMS-Install'. C'est cette cle Run
+    qui lance l'installeur dans la session interactive de l'utilisateur, ce qui est
+    indispensable a l'enrollment EMS (le jeton Entra / PRT n'existe que la ; un installeur
+    execute en SYSTEM tourne en session 0 et reste bloque en status 0x1D).
 
-    L'installeur exige neanmoins l'elevation. Elle est fournie par une regle EPM ciblant
-    UNIQUEMENT forticlientsetup_7.4.8_*.exe.
+    L'installeur ainsi lance n'est pas eleve et exige pourtant l'elevation. Elle est fournie
+    par une regle EPM ciblant UNIQUEMENT forticlientsetup_*.exe.
 
     /!\ Ne JAMAIS creer de regle EPM ciblant FortiESNAC.exe ni FortiTray.exe : EPM n'eleve pas
         "en tant qu'utilisateur courant", il substitue un compte virtuel
@@ -36,11 +38,11 @@
     Nom de la strategie EPM creee.
 
 .EXAMPLE
-    .\New-FortiClientEpmRule.ps1
+    .\New-EpmElevationRule.ps1
     Calcule les hashes et affiche les valeurs exactes a saisir dans le portail Intune.
 
 .EXAMPLE
-    .\New-FortiClientEpmRule.ps1 -CreatePolicy
+    .\New-EpmElevationRule.ps1 -CreatePolicy
     Se connecte a Graph, decouvre les identifiants de parametres EPM du tenant, puis cree
     la strategie.
 
@@ -440,4 +442,5 @@ Write-Host "Strategie creee : $($created.name)" -ForegroundColor Green
 Write-Host "  id : $($created.id)"
 Write-Host ""
 Write-Host "ETAPE SUIVANTE : assigner la strategie au groupe pilote dans le portail," -ForegroundColor Yellow
-Write-Host "puis deployer l'app Win32 en 'Install behavior = User'." -ForegroundColor Yellow
+Write-Host "puis deployer l'app Win32 en 'Install behavior = System' - AU MEME GROUPE," -ForegroundColor Yellow
+Write-Host "faute de quoi l'installeur n'est pas eleve et les installations echouent en 1223." -ForegroundColor Yellow

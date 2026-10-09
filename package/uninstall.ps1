@@ -1,13 +1,16 @@
 # ============================================================
 # FortiClient EMS - UNINSTALL (ultra simple)
-# Contexte Intune : Win32 app, "Install behavior = USER", 64 bits.
+# Contexte Intune : Win32 app, "Install behavior = SYSTEM", 64 bits - le meme que
+# install.ps1, puisque Intune execute la commande de desinstallation dans le contexte
+# declare pour l'app.
 #
 # Desinstalle FortiClient via son code produit MSI, puis supprime l'etat d'enrollment
 # residuel pour qu'une reinstallation reparte de zero.
 #
-# /!\ CE SCRIPT TOURNE SANS ELEVATION. msiexec /x exige l'elevation : elle doit venir d'une
-#     regle EPM couvrant msiexec.exe, OU la desinstallation doit etre lancee en contexte
-#     SYSTEM. Sans elevation, msiexec rend 1223 et le script le signale explicitement.
+# POURQUOI SYSTEM EST INDISPENSABLE ICI :
+#     La cle Run est en HKLM et msiexec /x exige l'elevation. Lance a la main dans une
+#     session utilisateur non elevee, ce script echoue : msiexec rend 1223 et le script le
+#     signale explicitement plutot que de conclure a tort a un succes.
 #
 # POURQUOI NETTOYER LE REGISTRE APRES COUP :
 #     Le MSI ne supprime pas HKLM\SOFTWARE\Fortinet\FortiClient\FA_ESNAC. Sans ce nettoyage,
@@ -20,6 +23,12 @@
 
 $ErrorActionPreference = 'Continue'
 
+# --- CONSTANTES A ADAPTER ---------------------------------------------------
+# /!\ Doivent etre IDENTIQUES a celles d'install.ps1 et de detection.ps1 : sinon le depot
+#     n'est pas retrouve et la desinstallation laisse l'EXE et le script de logon sur place.
+$BaseDir   = 'C:\ProgramData\IntuneStaging'
+$StageName = 'FortiEMS'
+
 # --- Relance en 64 bits -----------------------------------------------------
 # Intune execute la ligne de commande dans l'hote PowerShell 32 BITS : les acces a
 # HKLM:\SOFTWARE\... y sont rediriges vers WOW6432Node, et la cle Run 64 bits resterait en
@@ -31,13 +40,13 @@ if (-not [Environment]::Is64BitProcess) {
     exit $p.ExitCode
 }
 
-$LogDir = 'C:\ProgramData\Autopilot-Setup'
+$LogDir = $BaseDir
 try {
     if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
     [IO.File]::AppendAllText((Join-Path $LogDir '.wtest'), '')
     Remove-Item (Join-Path $LogDir '.wtest') -Force -ErrorAction SilentlyContinue
 } catch {
-    $LogDir = Join-Path $env:LOCALAPPDATA 'Autopilot-Setup'
+    $LogDir = Join-Path $env:LOCALAPPDATA (Split-Path $BaseDir -Leaf)
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 }
 
@@ -70,7 +79,7 @@ foreach ($rk in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
         }
     }
 }
-$stage = 'C:\ProgramData\Autopilot-Setup\FortiEMS'
+$stage = Join-Path $BaseDir $StageName
 if (Test-Path $stage) {
     Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
     if (Test-Path $stage) { Log "AVERTISSEMENT : $stage non supprime" } else { Log "Depot supprime : $stage" }

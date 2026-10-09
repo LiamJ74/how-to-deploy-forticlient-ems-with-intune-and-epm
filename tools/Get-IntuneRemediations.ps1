@@ -7,8 +7,9 @@
     dans le portail (le contenu des scripts n'y est pas affiche en clair) ni dans le dossier
     local (le tenant peut heberger une version differente de celle qu'on a sous la main).
 
-    Constate le 2026-09-22 : la remediation 'FortiCLient EMS - Remediation' rendait un message
-    absent de remediation-detect.ps1 -> le tenant et le disque avaient diverge.
+    Constate en production : la remediation FortiClient du tenant rendait un message de log
+    absent de la version du script conservee sur disque -> le tenant et le disque avaient
+    diverge, et c'est l'ancienne version qui tournait sur la flotte.
 
     LECTURE SEULE par defaut. Les scripts sont exportes dans un dossier pour etre relus a tete
     reposee. -RemoveAssignment retire les affectations d'une remediation nommee, apres
@@ -19,15 +20,19 @@
     Ne garde que les remediations dont le nom contient ce texte.
 
 .PARAMETER ExportFolder
-    Dossier ou ecrire les scripts extraits. Defaut : .\remediations-export
+    Dossier ou ecrire les scripts extraits. Defaut : remediations-export\ a cote de ce
+    script. Le .gitignore du depot exclut ce dossier : il contient du code du tenant.
 
 .PARAMETER RemoveAssignment
     Nom EXACT de la remediation dont il faut retirer les affectations. Demande confirmation.
 
+.PARAMETER RemoveAssignmentId
+    Meme chose, mais par id : insensible aux espaces de fin, a la casse et aux doublons.
+
 .EXAMPLE
     .\Get-IntuneRemediations.ps1 -Filter forti
 .EXAMPLE
-    .\Get-IntuneRemediations.ps1 -RemoveAssignment 'FortiCLient EMS - Remediation'
+    .\Get-IntuneRemediations.ps1 -RemoveAssignment 'Nom exact de votre remediation'
 #>
 
 [CmdletBinding()]
@@ -49,8 +54,11 @@ if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
 }
 Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
 
-$scopes = if ($RemoveAssignment) { 'DeviceManagementConfiguration.ReadWrite.All' }
-          else                   { 'DeviceManagementConfiguration.Read.All' }
+# Le scope en ecriture est demande des que l'un des deux modes de retrait est utilise :
+# oublier -RemoveAssignmentId ici donnait un consentement en lecture seule, et le POST
+# d'affectation echouait en 403 apres toute la phase d'inventaire.
+$scopes = if ($RemoveAssignment -or $RemoveAssignmentId) { 'DeviceManagementConfiguration.ReadWrite.All' }
+          else                                          { 'DeviceManagementConfiguration.Read.All' }
 Connect-MgGraph -Scopes $scopes -NoWelcome
 Write-Host "Connecte : $((Get-MgContext).Account)"
 Write-Host ''
@@ -121,9 +129,8 @@ if ($RemoveAssignmentId) {
     $target = @($all | Where-Object { $_.id -eq $RemoveAssignmentId })
     if (-not $target) { throw "Aucune remediation d'id '$RemoveAssignmentId'." }
 } else {
-    # Comparaison sur nom TRIMME : plusieurs remediations du tenant portent un espace en fin
-    # de chaine ('FortiCLient EMS - Remediation ', 'Lecteurs Reseaux '), invisible dans le
-    # portail mais suffisant a faire echouer une egalite stricte.
+    # Comparaison sur nom TRIMME : il arrive que des remediations portent un espace en fin de
+    # chaine, invisible dans le portail mais suffisant a faire echouer une egalite stricte.
     $target = @($all | Where-Object { $_.displayName.Trim() -eq $RemoveAssignment.Trim() })
     if (-not $target)        { throw "Aucune remediation nommee '$RemoveAssignment' (comparaison sans espaces de bord)." }
     if ($target.Count -gt 1) { throw "Plusieurs remediations portent ce nom - utiliser -RemoveAssignmentId." }

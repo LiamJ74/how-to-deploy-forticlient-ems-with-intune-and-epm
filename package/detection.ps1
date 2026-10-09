@@ -12,11 +12,18 @@
 #
 #   Un poste deja enrole est conforme d'office : rien a deposer.
 #
-# Suivi de l'enrollment : C:\ProgramData\Autopilot-Setup\FortiClientEMS-ultrasimple-logon.log
-# et le marqueur FortiEMS\enrolled.flag, pas cette detection.
+# Suivi de l'enrollment : $BaseDir\FortiClientEMS-ultrasimple-logon.log et le marqueur
+# $BaseDir\$StageName\enrolled.flag, pas cette detection.
 # ============================================================
 
 $ErrorActionPreference = 'SilentlyContinue'
+
+# --- CONSTANTES A ADAPTER ---------------------------------------------------
+# /!\ Doivent etre IDENTIQUES a celles d'install.ps1 et d'uninstall.ps1 : cette detection
+#     cherche exactement ce chemin. Une divergence rend le poste eternellement non conforme
+#     et fait redeployer le package a chaque cycle Intune.
+$BaseDir   = 'C:\ProgramData\IntuneStaging'
+$StageName = 'FortiEMS'
 
 # Vue 64 bits explicite : l'hote PowerShell d'Intune peut etre 32 bits et ne verrait alors
 # que WOW6432Node, ou la cle Fortinet est absente.
@@ -57,7 +64,7 @@ if ($installed -and -not $inv) {
 }
 
 # 3. Depot complet ? EXE + script de logon + cle Run HKLM.
-$stage = 'C:\ProgramData\Autopilot-Setup\FortiEMS'
+$stage = Join-Path $BaseDir $StageName
 $exe   = Get-ChildItem $stage -Filter 'forticlientsetup_*.exe' -File -ErrorAction SilentlyContinue |
          Select-Object -First 1
 $logon = Test-Path (Join-Path $stage 'logon-install.ps1')

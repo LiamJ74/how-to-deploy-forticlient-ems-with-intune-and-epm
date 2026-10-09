@@ -5,7 +5,7 @@
 # Ce script N'INSTALLE PAS FortiClient. Il depose la charge utile et arme le lancement au
 # logon :
 #   1. Copie l'EXE de l'architecture du poste + logon-install.ps1 dans
-#      C:\ProgramData\Autopilot-Setup\FortiEMS
+#      $BaseDir\$StageName (voir les constantes plus bas)
 #   2. Ouvre ce dossier en ecriture aux utilisateurs (le script de logon, non eleve, doit
 #      pouvoir y ecrire ses logs et ses marqueurs)
 #   3. Pose la cle Run HKLM 'FortiEMS-Install' -> logon-install.ps1
@@ -37,6 +37,17 @@
 
 $ErrorActionPreference = 'Stop'
 
+# --- CONSTANTES A ADAPTER ---------------------------------------------------
+# Emplacement du depot et des journaux. Nom volontairement neutre : remplacez-le par la
+# convention de votre organisation si vous en avez une.
+#
+# /!\ Ces deux valeurs doivent etre IDENTIQUES dans install.ps1, detection.ps1 et
+#     uninstall.ps1. logon-install.ps1 n'en a pas besoin : il deduit le chemin de sa propre
+#     position sur le disque, donc il suit automatiquement. Une divergence rendrait la
+#     detection toujours non conforme et la desinstallation incomplete.
+$BaseDir   = 'C:\ProgramData\IntuneStaging'
+$StageName = 'FortiEMS'
+
 # --- Relance en 64 bits -----------------------------------------------------
 # Intune execute la ligne de commande d'installation dans l'hote PowerShell 32 BITS. Toute
 # ecriture dans HKLM:\SOFTWARE\...\Run y est silencieusement redirigee vers WOW6432Node :
@@ -51,8 +62,8 @@ if (-not [Environment]::Is64BitProcess) {
     exit $p.ExitCode
 }
 
-$LogDir  = 'C:\ProgramData\Autopilot-Setup'
-$Stage   = Join-Path $LogDir 'FortiEMS'
+$LogDir  = $BaseDir
+$Stage   = Join-Path $LogDir $StageName
 $LogFile = Join-Path $LogDir 'FortiClientEMS-ultrasimple-install.log'
 $RunKey  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
 $RunName = 'FortiEMS-Install'
@@ -124,7 +135,8 @@ $null = & "$env:WINDIR\System32\icacls.exe" $LogDir /grant '*S-1-5-32-545:(OI)(C
 
 # --- 3. Armer le lancement au logon ---------------------------------------
 # -WindowStyle Hidden ici, plus masquage de la console dans le script lui-meme : aucune
-# fenetre a l'ouverture de session (la cle Run precedente, 'FortiEMS-Enroll', en affichait une).
+# fenetre a l'ouverture de session (l'ancienne cle Run 'FortiEMS-Enroll', remplacee par
+# celle-ci, en affichait une - voir remediation\ pour son retrait).
 $cmd = '"' + "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" + '"' +
        " -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$stagedLogon`""
 New-ItemProperty -Path $RunKey -Name $RunName -PropertyType String -Value $cmd -Force | Out-Null

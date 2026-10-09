@@ -4,8 +4,8 @@
     .intunewin, validation du contenu.
 
 .DESCRIPTION
-    Version generique de Publish-FortiClientWin32App.ps1. Suppose la convention de nommage
-    maison : un dossier source contenant install.ps1, uninstall.ps1 et detection.ps1.
+    Script generique : il suppose seulement un dossier source contenant install.ps1,
+    uninstall.ps1 et detection.ps1 - exactement la structure de package\ dans ce depot.
 
     Le script peut aussi construire le .intunewin lui-meme (-Build).
 
@@ -35,7 +35,8 @@
     d'en creer une seconde.
 
 .EXAMPLE
-    .\Publish-Win32App.ps1 -SourceFolder '.\Forticlient\FortiClient EMS - ULTRA SIMPLE' -Build
+    .\Publish-Win32App.ps1 -SourceFolder '..\package' -DisplayName 'FortiClient EMS' -Build
+    Publie le package de ce depot, en contexte 'system' (defaut), ce qu'attend install.ps1.
 .EXAMPLE
     .\Publish-Win32App.ps1 -SourceFolder '.\MonApp' -DisplayName 'Mon App' -RunAsAccount user -FailOnElevationDenied
 .EXAMPLE

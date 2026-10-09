@@ -1,13 +1,20 @@
 # ============================================================
 # PROACTIVE REMEDIATION - FIX : retire le mecanisme d'auto-enrollment FortiClient
 # ------------------------------------------------------------
+# /!\ SCRIPT DE MIGRATION - N'A DE SENS QUE SI VOUS AVEZ DEJA DEPLOYE L'ANCIEN DISPOSITIF.
+#     Il ne vise QUE l'architecture precedente. Les artefacts de l'architecture decrite dans
+#     ce depot (cle Run HKLM 'FortiEMS-Install', script logon-install.ps1, dossier de depot
+#     $BaseDir\$StageName) sont intacts : les noms sont differents et compares a l'identique.
+#     Si vous partez de zero avec ce depot, ne deployez pas ces deux scripts.
+#
 # Supprime, sur tout poste "infecte" :
 #   1. la/les tache(s) planifiee(s) 'FortiTray-EMS-Enrollment' (et variantes Forti*Enroll*)
 #   2. la cle Run HKLM 'FortiEMS-Enroll'  <- c'est ELLE qui ouvre la console PowerShell au logon
-#   3. le wrapper C:\ProgramData\Autopilot-Setup\FortiTray-Enroll.ps1 (RENOMME en .bak, pas efface)
+#   3. le wrapper $LegacyBaseDir\FortiTray-Enroll.ps1 (RENOMME en .bak, pas efface)
 #   4. tout process wrapper en cours d'execution
 #
 # NE TOUCHE PAS :
+#   - la cle Run 'FortiEMS-Install' ni logon-install.ps1 (architecture courante)
 #   - FortiClient lui-meme (service FA_Scheduler, MSI, registre FA_ESNAC)
 #   - la cle Run 'FortiTray' (GUI legitime, n'exige aucune elevation, aucun UAC)
 #   - l'etat d'enrollment des postes deja enroles
@@ -19,8 +26,9 @@
 # Idempotent. Contexte : SYSTEM. Intune : "Run script in 64-bit PowerShell Host = Yes".
 #
 # /!\ PREREQUIS INTUNE : desassigner d'abord la Proactive Remediation 'enroll-task-*'
-#     (detect/fix) et retirer le bloc correspondant de l'app Win32 install.ps1, sinon la cle Run
-#     et le wrapper seront reposes au cycle suivant.
+#     (detect/fix) et retirer le bloc correspondant de l'install.ps1 de votre ANCIENNE app
+#     Win32, sinon la cle Run et le wrapper seront reposes au cycle suivant. (L'install.ps1
+#     de ce depot ne pose rien de tout cela.)
 # ============================================================
 
 # --- Relance en 64 bits (sinon Get-ScheduledTask et /reg:64 voient une vue tronquee) ---
@@ -30,7 +38,12 @@ if (-not [Environment]::Is64BitProcess) {
     exit $LASTEXITCODE
 }
 
-$LogFolder = 'C:\ProgramData\Autopilot-Setup'
+# --- CONSTANTE A ADAPTER ----------------------------------------------------
+# Dossier ou l'ANCIEN dispositif deposait son wrapper, et ou ce script ecrit son journal.
+# Doit etre la meme valeur que dans cleanup-enroll-detect.ps1.
+$LegacyBaseDir = 'C:\ProgramData\IntuneStaging'
+
+$LogFolder = $LegacyBaseDir
 if (-not (Test-Path $LogFolder)) { New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null }
 $LogFile = Join-Path $LogFolder 'cleanup-enroll.log'
 function Write-Log { param([string]$m)
@@ -41,8 +54,10 @@ function Write-Log { param([string]$m)
 
 $TaskNames = @('FortiTray-EMS-Enrollment', 'FortiEMS-Enrollment', 'FortiClient-EMS-Enrollment')
 $RunKey    = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+# Valeur EXACTE de l'ancienne cle. Surtout pas de comparaison par motif : 'FortiEMS-Install',
+# la cle de l'architecture courante, serait emportee avec.
 $RunValue  = 'FortiEMS-Enroll'
-$Wrapper   = Join-Path $LogFolder 'FortiTray-Enroll.ps1'
+$Wrapper   = Join-Path $LegacyBaseDir 'FortiTray-Enroll.ps1'
 
 Write-Log "=== CLEANUP lanceurs d'enrollment FortiClient sur $env:COMPUTERNAME ==="
 
