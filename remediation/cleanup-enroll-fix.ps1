@@ -41,7 +41,7 @@ if (-not [Environment]::Is64BitProcess) {
 # --- CONSTANTE A ADAPTER ----------------------------------------------------
 # Dossier ou l'ANCIEN dispositif deposait son wrapper, et ou ce script ecrit son journal.
 # Doit etre la meme valeur que dans cleanup-enroll-detect.ps1.
-$LegacyBaseDir = 'C:\ProgramData\IntuneStaging'
+$LegacyBaseDir = 'C:\ProgramData\CHANGEME-OldStagingFolder'   # <-- A REMPLACER
 
 $LogFolder = $LegacyBaseDir
 if (-not (Test-Path $LogFolder)) { New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null }

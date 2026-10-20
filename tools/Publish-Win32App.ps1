@@ -321,6 +321,27 @@ try {
     # ---------------------------------------------------------------------------
     Write-Section 'Application Win32'
 
+    # --- Injection de la version cible dans le script de detection ---------
+    # Un script de detection Intune tourne SANS acces au contenu du package : il ne peut pas
+    # lire la version de l'EXE embarque. On la lui injecte donc ici, a partir des binaires
+    # reellement presents, au moment de l'upload. Le fichier sur disque n'est PAS modifie -
+    # seul le contenu envoye a Intune l'est - pour que le depot reste propre a versionner.
+    # Resultat : repackager avec une version plus recente suffit, aucune constante a tenir.
+    $detectionText = [IO.File]::ReadAllText($detectionPs1)
+    if ($detectionText -match '__TARGET_VERSION__') {
+        $pkgVersions = Get-ChildItem $SourceFolder -Recurse -Filter *.exe -File -ErrorAction SilentlyContinue |
+                       ForEach-Object { try { [version]$_.VersionInfo.FileVersion } catch { } } |
+                       Where-Object { $_ }
+        if ($pkgVersions) {
+            $target = ($pkgVersions | Sort-Object -Descending | Select-Object -First 1).ToString()
+            $detectionText = $detectionText.Replace('__TARGET_VERSION__', $target)
+            Write-Host "Version cible injectee dans la detection : $target" -ForegroundColor Green
+        } else {
+            Write-Warning "Jeton __TARGET_VERSION__ present mais aucun .exe versionne trouve sous $SourceFolder."
+            Write-Warning "La detection se rabattra sur un controle du depot, sans exigence de version."
+        }
+    }
+
     $codes = @(
         @{ returnCode = 0;    type = 'success' }
         @{ returnCode = 3010; type = 'softReboot' }
@@ -352,7 +373,7 @@ try {
                 '@odata.type'         = '#microsoft.graph.win32LobAppPowerShellScriptDetection'
                 enforceSignatureCheck = $false
                 runAs32Bit            = $false
-                scriptContent         = [Convert]::ToBase64String([IO.File]::ReadAllBytes($detectionPs1))
+                scriptContent         = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($detectionText))
             }
         )
         msiInformation                 = $null
@@ -375,8 +396,17 @@ try {
     if ($existing) {
         $appId = $existing.id
         Write-Host "Mise a jour de l'app existante : $appId"
+
+        # /!\ applicableArchitectures est acceptee a la CREATION mais refusee par un PATCH :
+        # "The ApplicableArchitectures property can only be set via ODataAction:
+        # enableApplicableArchitectures". On la retire donc du corps de mise a jour - les
+        # architectures d'une app existante se changent dans le portail, et de toute facon
+        # elles ne varient pas d'une version du package a l'autre.
+        $patchBody = $appBody.Clone()
+        $patchBody.Remove('applicableArchitectures')
+
         Invoke-MgGraphRequest -Method PATCH -Uri "$GraphBase/deviceAppManagement/mobileApps/$appId" `
-            -Body ($appBody | ConvertTo-Json -Depth 20) -ContentType 'application/json' | Out-Null
+            -Body ($patchBody | ConvertTo-Json -Depth 20) -ContentType 'application/json' | Out-Null
     } else {
         $app   = Invoke-MgGraphRequest -Method POST -Uri "$GraphBase/deviceAppManagement/mobileApps" `
                     -Body ($appBody | ConvertTo-Json -Depth 20) -ContentType 'application/json'
@@ -519,7 +549,13 @@ try {
     Write-Host "  contentVersion   : $($cv.id)"
     Write-Host "  Install behavior : $RunAsAccount"
     Write-Host ''
-    Write-Host "L'app est creee SANS AFFECTATION - a cibler dans le portail." -ForegroundColor Yellow
+    if ($existing) {
+        Write-Host "Mise a jour : les affectations existantes sont CONSERVEES." -ForegroundColor Yellow
+        Write-Host "Rappel : applicableArchitectures n'est pas modifiable par PATCH - si le package" -ForegroundColor Yellow
+        Write-Host "couvre une architecture que l'app ne declare pas, l'ajouter dans le portail." -ForegroundColor Yellow
+    } else {
+        Write-Host "L'app est creee SANS AFFECTATION - a cibler dans le portail." -ForegroundColor Yellow
+    }
 
     $createdAppId = $null   # publication reussie : plus rien a nettoyer
 

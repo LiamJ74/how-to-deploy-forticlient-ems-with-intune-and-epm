@@ -1,5 +1,9 @@
 # FortiClient EMS enrollment via Intune — without breaking Entra authentication
 
+**English** · [Français](README.fr.md)
+
+> The comments inside the scripts are in French.
+
 Deploying **FortiClient EMS** through Intune looks trivial and is not. This repository holds a
 working pattern, and — more useful — the list of dead ends that look right and are not.
 
@@ -45,28 +49,42 @@ Split the privileged part from the identity part.
 Intune Win32 app  (SYSTEM)     install.ps1
                                ├── copies the EMS installer + logon-install.ps1
                                │   to C:\ProgramData\IntuneStaging\FortiEMS
-                               ├── grants Users write access on that folder
+                               ├── writes target-version.txt (version of the embedded EXE)
+                               ├── Users: read/execute + create-only on that folder
                                └── writes HKLM\...\Run  'FortiEMS-Install'
 
 User logon        (USER)       logon-install.ps1
-                               ├── already enrolled?  -> stop for good
-                               ├── already attempted?  -> report only, never retry
-                               └── otherwise           -> run the installer once
-                                                          (Intune EPM elevates it)
+                               ├── enrolled AND at target version? -> stop for good
+                               ├── already attempted, client present -> report only, never retry
+                               ├── already attempted, client ABSENT  -> retry (max 3)
+                               ├── wait for AzureAdPrt = YES (30 min cap)
+                               └── run the installer               (Intune EPM elevates it)
 ```
+
+Markers are named after the target version (`exe-launched-<ver>.flag`,
+`enrolled-<ver>.flag`). Repackaging with a newer EMS installer therefore re-arms the upgrade on
+its own: no cleanup on the devices, no constant to edit. `Publish-Win32App.ps1` injects the
+same version into `detection.ps1` at upload time (`__TARGET_VERSION__` token), because a
+detection script has no access to the package content.
 
 An **HKLM Run key executes inside the signed-in user's session**. So the staging is privileged
 and the installer launch is not — which is exactly the split you need. And because a Run key
 launch is an ordinary user-initiated process, **EPM intercepts it reliably** (verified).
 
 Measured on a clean device: logon at `13:52:14`, installer at `13:52:15`, `status 0x2` with
-`fgt_sn` populated at `13:54:17`. No UAC prompt, no scheduled task, no reboot.
+`fgt_sn` populated at `13:54:17`. No UAC prompt, no scheduled task.
+
+On other devices the MSI ends with **3010** (`FortiClient requested a reboot`). The installer
+runs with `/norestart`, so the transaction stays pending: the invitation code is in the
+registry, `FA_ESNAC` is still empty, and **nothing enrolls until the device restarts**. After
+the reboot and the next logon, enrollment completes without any further action. Do not
+reinstall and do not run a remediation in that state — that is the road to `0x1D`.
 
 ## Contents
 
 ```
 package/     install.ps1          stages payload + Run key          (Win32 app, SYSTEM)
-             logon-install.ps1    runs the installer once           (user session)
+             logon-install.ps1    waits for the PRT, runs the installer (user session)
              detection.ps1        Intune detection: checks the staging, not the install
              uninstall.ps1        removes payload, Run key, product
 
@@ -74,7 +92,8 @@ tools/       New-EpmElevationRule.ps1   creates the EPM rule via Graph
              Publish-Win32App.ps1       builds + uploads any Win32 app (with a GUI)
              Get-IntuneRemediations.ps1 exports what your remediations REALLY contain
 
-remediation/ cleanup-enroll-detect.ps1  MIGRATION ONLY — see below
+remediation/ Detect-FortiTrialExpired.ps1 read-only fleet report of the "trial expired" loop
+             cleanup-enroll-detect.ps1  MIGRATION ONLY — see below
              cleanup-enroll-fix.ps1     MIGRATION ONLY — see below
 ```
 
@@ -94,7 +113,7 @@ $StageName = 'FortiEMS'
 These three must match, or detection never passes and uninstall leaves the payload behind.
 `logon-install.ps1` needs no constant: it derives the folder from its own location on disk.
 
-### The `remediation/` scripts are for migration only
+### The `remediation/cleanup-*` scripts are for migration only
 
 They belong to an **older design** of this deployment (a scheduled task
 `FortiTray-EMS-Enrollment` and/or a Run key `FortiEMS-Enroll` launching a
@@ -107,7 +126,31 @@ If you do use them, set `$LegacyBaseDir` at the top of both files to the folder 
 wrapper lived in. Note that the fix script also *re-creates* the `FortiTray` Run key when
 `FortiTray.exe` is present (the legitimate GUI autostart the old cleanup used to drop).
 
+## Security fix — update if you deployed an earlier version
+
+Earlier versions of `install.ps1` granted **Modify** (`(OI)(CI)M`) to Users on the staging
+folder and on its parent. That folder holds `logon-install.ps1`, which the HKLM Run key executes
+at the logon of **every** user, administrators included. A standard user could replace the
+script and wait for an admin to sign in: **local privilege escalation**.
+
+The current version removes inheritance on the staging folder and grants Users only
+read/execute, plus *create files* on the folder itself (no inheritance flag) — enough to drop
+new markers, not to overwrite an existing file. It also removes the explicit Modify grant on the
+parent folder. Republishing the package fixes deployed devices on the next Intune cycle.
+
 ## Traps worth knowing
+
+**The "trial expired" loop.** A client that lost its EMS registration runs a
+`License Expire Check` every minute: `trial period has expired` → VPN disconnected →
+`remove cloud client token and invitation code`. Any invitation you re-inject is wiped within
+the minute, and an install over the top is only an MSI *reconfigure* that does not reset the
+trial. Only a **fresh** install recovers it. `detection.ps1` spots an *active* loop (traces less
+than an hour old) and `install.ps1` then uninstalls **once per target version** so the next
+logon reinstalls cleanly. A second occurrence is left for manual handling — never a reboot loop.
+
+**Windows PowerShell 5.1 is not PowerShell 7.** Under 5.1 (the host Intune uses), a native exe
+writing to stderr with `2>&1` and `$ErrorActionPreference = 'Stop'` *throws*. A `reg delete` on
+a missing key aborted an install that way, while the same code passed every local test in 7.
 
 **The PRT race is the expensive one.** In a fresh session, WAM / the Entra PRT becomes
 available anywhere between a few seconds and about half an hour. If FortiClient asks for its
@@ -174,7 +217,8 @@ PowerShell 7, `Microsoft.Graph.Authentication`, and Microsoft's
 [Win32 Content Prep Tool](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool)
 (place `IntuneWinAppUtil.exe` next to `Publish-Win32App.ps1`, or pass `-IntuneWinAppUtil`).
 
-Tested against FortiClient 7.4.7 and 7.4.8 on Windows 11, Entra-joined devices.
+Tested against FortiClient 7.4.7 and 7.4.8 on Windows 11, Entra-joined and hybrid-joined
+devices.
 
 ## Disclaimer
 

@@ -28,7 +28,7 @@
 # Dossier ou l'ANCIEN dispositif deposait son wrapper. Ce n'est pas forcement le meme que le
 # $BaseDir de l'architecture courante (package\) : mettez ici le chemin que vous utilisiez
 # avant, sinon ce script ne trouvera jamais rien a nettoyer.
-$LegacyBaseDir = 'C:\ProgramData\IntuneStaging'
+$LegacyBaseDir = 'C:\ProgramData\CHANGEME-OldStagingFolder'   # <-- A REMPLACER
 
 $TaskNames = @('FortiTray-EMS-Enrollment', 'FortiEMS-Enrollment', 'FortiClient-EMS-Enrollment')
 $RunKey    = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
