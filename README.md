@@ -4,6 +4,8 @@
 
 > The comments inside the scripts are in French.
 
+📘 **Step-by-step setup, verification, upgrade and troubleshooting: [detailed guide](docs/GUIDE.md).**
+
 Deploying **FortiClient EMS** through Intune looks trivial and is not. This repository holds a
 working pattern, and — more useful — the list of dead ends that look right and are not.
 

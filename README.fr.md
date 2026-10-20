@@ -2,6 +2,8 @@
 
 [English](README.md) · **Français**
 
+📘 **Mise en place pas à pas, vérification, mise à niveau et dépannage : [guide détaillé](docs/GUIDE.fr.md).**
+
 Déployer **FortiClient EMS** avec Intune paraît trivial, et ne l'est pas. Ce dépôt contient une
 méthode qui fonctionne et, plus utile encore, la liste des impasses qui ont l'air correctes et
 ne le sont pas.
